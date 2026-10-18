@@ -1,6 +1,8 @@
 /**
  * test/test-dashboard-port.js - The dashboard port from the Server tab, and
  * the TV apps that open the dashboard following it
+ *
+ * Strict ES5 and node 0.10 APIs: runs on the TV's node.
  */
 
 var assert = require('assert');
@@ -98,7 +100,9 @@ function testUnchanged(done) {
 }
 
 function testLauncherSync() {
-  var root = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-'));
+  // mkdtempSync does not exist on node 0.10 and 0.12, which this suite runs on.
+  var root = path.join(os.tmpdir(), 'launcher-' + process.pid + '-' + Date.now());
+  fs.mkdirSync(root);
   var page = "<script>\n  var PORT = 8080;                // tvweb:port\n  var BASE = 'http://localhost:' + PORT;\n</script>\n";
   var ids = ['com.tvweb.dashboard', 'io.github.rorygallagher2024.lg-webos-dashboard'];
   ids.forEach(function (id) {
