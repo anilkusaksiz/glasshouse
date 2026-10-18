@@ -1386,6 +1386,19 @@
         </div>
         <div class="prot-row">
           <div class="prot-main">
+            <div class="prot-title" data-t="server.port.title">Dashboard port</div>
+            <div class="prot-desc" data-t="server.port.short">The port this dashboard answers on, 8080 unless changed. Change it if another app on the TV needs 8080, such as Stremio. Saving restarts the server, and this page follows to the new address.</div>
+            <form class="toast-form" id="port-form" onsubmit="event.preventDefault();saveDashboardPort();">
+              <input type="number" id="port-input" min="1024" max="65533" step="1" inputmode="numeric" placeholder="8080"
+                autocomplete="off" aria-label="Dashboard port" data-t-aria-label="server.port.input"
+                oninput="this.dataset.dirty='1'">
+              <button type="submit" id="port-save" data-t="server.port.save">Save</button>
+            </form>
+            <div class="prot-desc row-err" id="port-status" style="margin-top:8px" hidden></div>
+          </div>
+        </div>
+        <div class="prot-row">
+          <div class="prot-main">
             <div class="prot-title" data-t="server.prometheus.short.title">Prometheus metrics</div>
             <div class="prot-desc" data-t="server.prometheus.short">Lets a Prometheus server on the network collect the TV's readings, at /api/prometheus/metrics. While off, the address does not exist.</div>
           </div>

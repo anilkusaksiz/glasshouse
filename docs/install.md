@@ -101,7 +101,7 @@ These are the most common properties you can set in `config.json`:
 
 | Property | Default | Description |
 | :--- | :--- | :--- |
-| `port` | `8080` | Port for the web dashboard and REST API. |
+| `port` | `8080` | Port for the web dashboard and REST API. Also set under Server → Advanced → Dashboard port; the port after it (`port + 1`) and the one after that (`port + 2`) serve the phone handoff and the icons. |
 | `host` | `"::"` | Bind address. `"::"` listens dual-stack (IPv4 and IPv6), `"0.0.0.0"` listens on all IPv4 interfaces, and `"127.0.0.1"` keeps the dashboard private to the TV only. |
 | `token` | `""` | Optional access token. When set, every web dashboard visit and API request requires `?k=<token>`. The TV app automatically embeds this token into its phone pairing QR code. |
 | `allowControl` | `true` | When `false`, disables remote TV controls (volume, inputs, screen on/off, app launch, toast). |

@@ -208,6 +208,14 @@ function saveNtp(patch, cb) {
   });
 }
 function doRestartSelf() { return restartSelfFn(); }
+/** Whether nothing on this TV is listening on the port; cb(free). */
+function portIsFree(port, cb) {
+  var probe = require('net').createServer();
+  probe.once('error', function () { cb(false); });
+  probe.once('listening', function () { probe.close(function () { cb(true); }); });
+  probe.listen(port);
+}
+
 function doTvApp(action, cb) { return tvAppFn(action, cb); }
 
 /*
@@ -928,6 +936,36 @@ function doControl(action, value, cb) {
 
     // routes.js reads this same config object on every request, so the
     // endpoint starts or stops answering without a restart.
+    /*
+     * The port the dashboard answers on. The server binds it at start, so the
+     * change takes effect with a restart, which the answer announces; the page
+     * then follows to the new port. The handoff and icon servers sit just above
+     * it (port + 1, + 2), and 9998 is the web app debugger. Another service on
+     * the TV may already hold a port, so a free one is checked for first.
+     */
+    case 'setDashboardPort':
+      if (!writeSettingsFn) return cb({ ok: false, error: 'no writeSettings handler configured' });
+      var newPort = /^\d{1,5}$/.test(String(value).trim()) ? parseInt(value, 10) : NaN;
+      if (!(newPort >= 1024 && newPort <= 65533) || newPort === 9998) {
+        return cb({ ok: false, error: msg('srv.port.invalid', 'The port must be a number from 1024 to 65533, other than 9998') });
+      }
+      if (config && newPort === config.port) return cb(getUpdateSummary());
+      return portIsFree(newPort, function (free) {
+        if (!free) {
+          return cb({ ok: false, error: msg('srv.port.inUse', 'Another service on the TV is already using that port') });
+        }
+        writeSettingsFn({ port: newPort }, function (err) {
+          if (err) return cb({ ok: false, error: 'could not save setting: ' + err.message });
+          var summary = getUpdateSummary();
+          summary.restarting = true;
+          summary.newPort = newPort;
+          setTimeout(function () {
+            if (!doRestartSelf()) console.error('port: no tvwebctl found - restart manually to apply');
+          }, 600);
+          cb(summary);
+        });
+      });
+
     case 'setPrometheusEnabled':
       var promOn = (value === true || value === 'on' || value === 'true');
       if (!writeSettingsFn) return cb({ ok: false, error: 'no writeSettings handler configured' });

@@ -128,6 +128,12 @@ function renderUpdate(d) {
   if (d.ntpSettings) {
     renderNtp(d.ntp, d.ntpSettings, d.writable);
   }
+  const portInput = q('port-input');
+  if (portInput && d.daemon) {
+    portInput.disabled = !d.writable;
+    q('port-save').disabled = !d.writable;
+    if (document.activeElement !== portInput && !portInput.dataset.dirty) portInput.value = d.daemon.port;
+  }
   if (d.backupDaily) renderBackupDaily(d.backupDaily, d.writable);
 
   const hlRow = q('exp-homelayout-row');
@@ -631,6 +637,41 @@ async function saveNtpServer() {
     if (r && r.ok) renderUpdate(r); else loadUpdate();
   } finally {
     if (btn) { btn.disabled = false; btn.classList.remove('busy'); }
+  }
+}
+
+async function saveDashboardPort() {
+  const input = q('port-input'), btn = q('port-save'), status = q('port-status');
+  const port = input.value.trim();
+  if (!port) return input.focus();
+  status.hidden = true;
+  status.classList.add('row-err');
+  btn.disabled = true; btn.classList.add('busy');
+  try {
+    const r = await sendCommand('setDashboardPort', port);
+    delete input.dataset.dirty;
+    if (r && r.ok && r.restarting) {
+      // The server comes back on the new port; this page's address is then stale.
+      status.classList.remove('row-err');
+      status.textContent = t('server.port.moving', 'Saved. The server is restarting on port {port}; this page opens there when it is back.', { port: r.newPort });
+      status.hidden = false;
+      const next = location.protocol + '//' + location.hostname + ':' + r.newPort + location.pathname + location.search + location.hash;
+      // A browser that forbids the probe would otherwise wait here for good, so
+      // after about fifteen seconds the page goes to the new address regardless.
+      let tries = 0;
+      const tryNext = () => {
+        if (++tries > 8) { location.href = next; return; }
+        fetch(location.protocol + '//' + location.hostname + ':' + r.newPort + '/api/caps', { mode: 'no-cors' })
+          .then(() => { location.href = next; })
+          .catch(() => { setTimeout(tryNext, 1500); });
+      };
+      setTimeout(tryNext, 2500);
+    } else if (r && r.ok) {
+      loadUpdate();
+    }
+    // A refusal, such as a port already in use, is shown by sendCommand.
+  } finally {
+    btn.disabled = false; btn.classList.remove('busy');
   }
 }
 

@@ -38,10 +38,13 @@ body{display:flex;display:-webkit-flex;align-items:center;-webkit-align-items:ce
  * this wrapper remains on its local black screen, displays a smooth OLED loading sequence,
  * and actively probes for the server to become ready.
  *
- * Once port 8080 responds with HTTP 200, it navigates cleanly to the dashboard on the
+ * Once the dashboard port responds with HTTP 200, it navigates cleanly to the dashboard on the
  * System tab. If the server is already running, the first probe succeeds in <100ms.
  */
 (function () {
+  // Rewritten by the server to match config.json's port, at every start.
+  var PORT = 8080;                // tvweb:port
+  var BASE = 'http://localhost:' + PORT;
   var navigated = false;
   var probeCount = 0;
   var statusEl = document.getElementById('status');
@@ -50,7 +53,7 @@ body{display:flex;display:-webkit-flex;align-items:center;-webkit-align-items:ce
   function openDashboard() {
     if (navigated) return;
     navigated = true;
-    location.replace('http://localhost:8080/assets/dashboard.html?tab=system&t=' + Date.now());
+    location.replace(BASE + '/assets/dashboard.html?tab=system&t=' + Date.now());
   }
 
   function probe() {
@@ -68,7 +71,7 @@ body{display:flex;display:-webkit-flex;align-items:center;-webkit-align-items:ce
     // 1. Primary probe via XMLHttpRequest
     try {
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', 'http://localhost:8080/api/caps?t=' + Date.now(), true);
+      xhr.open('GET', BASE + '/api/caps?t=' + Date.now(), true);
       xhr.timeout = 1200;
       xhr.onreadystatechange = function () {
         if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 400) {
@@ -89,7 +92,7 @@ body{display:flex;display:-webkit-flex;align-items:center;-webkit-align-items:ce
       img.onerror = function () {
         if (!navigated) setTimeout(probe, 750);
       };
-      img.src = 'http://localhost:8080/assets/dashboard-app/assets/icon80.png?t=' + Date.now();
+      img.src = BASE + '/assets/dashboard-app/assets/icon80.png?t=' + Date.now();
     }
   }
 

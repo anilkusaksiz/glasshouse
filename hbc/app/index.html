@@ -37,7 +37,8 @@ body{display:flex;display:-webkit-flex;align-items:center;-webkit-align-items:ce
  */
 (function () {
   var APP_VERSION = '@VERSION@';                // filled in when the app is built
-  var BASE = 'http://localhost:8080';
+  var PORT = 8080;                              // tvweb:port, rewritten by the server to match config.json
+  var BASE = 'http://localhost:' + PORT;
   var EXEC = 'luna://org.webosbrew.hbchannel.service/exec';
   // This page's own directory, which holds the server files under payload/.
   var appDir = decodeURIComponent(location.pathname.replace(/\/[^\/]*$/, ''));

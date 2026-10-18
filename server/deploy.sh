@@ -179,6 +179,8 @@ if tr -d ' \t\r\n' < "\$D/config.json" 2>/dev/null | grep -q '"web":{[^}]*"enabl
 elif tr -d ' \t\r\n' < "\$D/config.json" 2>/dev/null | grep -qE '"host":"(127\.[0-9.]*|localhost|::1)"'; then
   echo "TVWEB_WEB_LOCAL"
 fi
+# The port the dashboard is on, which the Server tab can change.
+echo "TVWEB_PORT \$(/usr/bin/node -e 'try{console.log(require("/var/lib/tvweb/config.json").port||8080)}catch(e){console.log(8080)}' 2>/dev/null)"
 # Added on a first install, left alone on an update, so removing it from the
 # Server tab sticks. Never fails the install: the dashboard is served to
 # browsers whether or not the TV has a tile for it.
@@ -302,10 +304,13 @@ if grep -q '^TVWEB_WEB_LOCAL' "$WORK/out"; then
   exit 0
 fi
 
+PORT=$(sed -n 's/^TVWEB_PORT //p' "$WORK/out" | head -1)
+case "$PORT" in ''|*[!0-9]*) PORT=8080 ;; esac
+
 echo "checking the dashboard answers ..."
 if ! command -v curl >/dev/null 2>&1; then
   echo "(skipped: this computer has no curl to ask it with)"
-  echo "open  http://$TV:8080/"
+  echo "open  http://$TV:$PORT/"
   exit 0
 fi
 # A restart takes a few seconds, so try for up to a minute before calling it a
@@ -314,16 +319,16 @@ fi
 # command substitution would end the script on the first try, hence || true.
 answered=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "http://$TV:8080/api/caps") || true
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "http://$TV:$PORT/api/caps") || true
   if [ -n "$code" ] && [ "$code" != 000 ]; then answered=1; break; fi
   sleep 2
 done
 if [ -z "$answered" ]; then
   cat >&2 <<EOF
 
-The files were installed, but the dashboard at http://$TV:8080/ didn't answer
+The files were installed, but the dashboard at http://$TV:$PORT/ didn't answer
 within a minute. Check that the TV is on, then run this again.
 EOF
   exit 1
 fi
-echo "done - open http://$TV:8080/"
+echo "done - open http://$TV:$PORT/"

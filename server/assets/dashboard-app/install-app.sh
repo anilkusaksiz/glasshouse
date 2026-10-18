@@ -29,6 +29,14 @@ PKGDIR=/media/developer/apps/usr/palm/packages/$ID
 
 installed() { [ -d "$APPDIR" ]; }
 
+# The app's page opens the dashboard at the port on its `var PORT = n; // tvweb:port`
+# line, which the server keeps in step with config.json at every start. The copy
+# installed here carries the same port, or a refresh would see the server's edit
+# as a stale page and reinstall it, and a fresh install would open the wrong port.
+PORT=$(/usr/bin/node -e 'try{console.log(parseInt(require("/var/lib/tvweb/config.json").port,10)||8080)}catch(e){console.log(8080)}' 2>/dev/null)
+case "$PORT" in ''|*[!0-9]*) PORT=8080 ;; esac
+ported() { sed "s/\(var PORT = \)[0-9]*\(; *\/\/ tvweb:port\)/\1$PORT\2/" "$1"; }
+
 # Set when the server was put in place by the app the Homebrew Channel installs.
 # That app is then the tile, so this one is retired rather than offered.
 HBC_MARK=/var/lib/tvweb/.from-homebrew-channel
@@ -109,7 +117,12 @@ if [ "$ACTION" = refresh ]; then
   stale=""
   for f in appinfo.json index.html assets/icon80.png assets/icon130.png; do
     [ -f "$SRC/$f" ] || continue
-    if [ "$(md5sum < "$SRC/$f")" != "$(md5sum < "$APPDIR/$f" 2>/dev/null)" ]; then
+    if [ "$f" = index.html ]; then
+      want=$(ported "$SRC/$f" | md5sum)
+    else
+      want=$(md5sum < "$SRC/$f")
+    fi
+    if [ "$want" != "$(md5sum < "$APPDIR/$f" 2>/dev/null)" ]; then
       stale=1; break
     fi
   done
@@ -141,7 +154,8 @@ trap 'rm -rf "$WORK"' EXIT
 APP="$WORK/data/usr/palm/applications/$ID"
 PKG="$WORK/data/usr/palm/packages/$ID"
 mkdir -p "$APP/assets" "$PKG"
-cp "$SRC/appinfo.json" "$SRC/index.html" "$APP/" || exit 0
+cp "$SRC/appinfo.json" "$APP/" || exit 0
+ported "$SRC/index.html" > "$APP/index.html" || exit 0
 cp "$SRC/assets/icon80.png" "$SRC/assets/icon130.png" "$APP/assets/" 2>/dev/null
 cp "$SRC/packageinfo.json" "$PKG/" || exit 0
 

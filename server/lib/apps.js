@@ -1172,8 +1172,43 @@ function uninstallApp(appId, cb) {
   });
 }
 
+/*
+ * The TV apps that open the dashboard (the dashboard's own tile and the
+ * Homebrew Channel one) are static pages that cannot read config.json, so each
+ * carries the port as a `var PORT = n; // tvweb:port` line. An update, a
+ * redeploy or a change of "port" leaves that line out of step with the server;
+ * rewriting it at every start puts it right in all three cases.
+ */
+var LAUNCHER_APP_IDS = ['com.tvweb.dashboard', 'io.github.rorygallagher2024.lg-webos-dashboard'];
+var LAUNCHER_APP_ROOT = '/media/developer/apps/usr/palm/applications';
+var LAUNCHER_PORT_LINE = /(var PORT = )\d+(;\s*\/\/ tvweb:port)/;
+
+/** Returns the ids of the installed launcher pages whose port was changed. */
+function syncLauncherPort(port, root) {
+  var changed = [];
+  port = parseInt(port, 10);
+  if (!(port >= 1 && port <= 65535)) return changed;
+  root = root || LAUNCHER_APP_ROOT;
+  for (var i = 0; i < LAUNCHER_APP_IDS.length; i++) {
+    var file = path.join(root, LAUNCHER_APP_IDS[i], 'index.html');
+    try {
+      if (!fs.existsSync(file)) continue;
+      var html = fs.readFileSync(file, 'utf8');
+      var next = html.replace(LAUNCHER_PORT_LINE, '$1' + port + '$2');
+      if (next === html) continue;
+      fs.writeFileSync(file, next);
+      changed.push(LAUNCHER_APP_IDS[i]);
+      console.log('apps: ' + LAUNCHER_APP_IDS[i] + ' now opens the dashboard on port ' + port);
+    } catch (e) {
+      console.error('apps: could not set the port in ' + file + ': ' + e.message);
+    }
+  }
+  return changed;
+}
+
 module.exports = {
   init: init,
+  syncLauncherPort: syncLauncherPort,
   firstFileInside: firstFileInside,
   isProtected: isProtected,
   getApps: getApps,
