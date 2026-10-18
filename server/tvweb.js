@@ -621,6 +621,7 @@ controls.init({
   ntp: ntpClient,
   history: history,
   backup: backup,
+  home: glasshouseHome,
   republishDiscovery: function () { republishDiscovery(); },
   tvApp: tvApp,
   restartSelf: restartSelf,

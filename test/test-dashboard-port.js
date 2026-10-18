@@ -23,10 +23,11 @@ function freePort(cb) {
   });
 }
 
-function setup(config) {
+function setup(config, homeOn) {
   var h = { saved: [], restarts: 0 };
   controls.init({
     config: config,
+    home: homeOn ? { enabled: function () { return true; } } : null,
     writeSettings: function (patch, cb) { h.saved.push(patch); cb(null); },
     restartSelf: function () { h.restarts++; return true; },
     updateSummary: function () { return { ok: true }; }
@@ -45,12 +46,23 @@ function refused(value, config, done) {
 }
 
 function testValidation(done) {
-  var bad = ['', 'abc', '80', '1023', '65534', '9998', '8080.5', '-8081', null, undefined];
+  var bad = ['', 'abc', '80', '1023', '65534', '9996', '9997', '9998', '8080.5', '-8081', null, undefined];
   var i = 0;
   (function next() {
-    if (i === bad.length) { console.log('  ✓ ports outside 1024-65533, 9998 and non-numbers are refused unsaved'); return done(); }
+    if (i === bad.length) { console.log('  ✓ ports outside 1024-65533, 9996-9998 and non-numbers are refused unsaved'); return done(); }
     refused(bad[i++], { allowControl: true, port: 8080 }, next);
   })();
+}
+
+function testHomeOn(done) {
+  var h = setup({ allowControl: true, port: 8080 }, true);
+  controls.doControl('setDashboardPort', '8085', function (res) {
+    assert.strictEqual(res.ok, false);
+    assert.ok(/Glasshouse Home/.test(res.error), res.error);
+    assert.strictEqual(h.saved.length, 0, 'not saved while Glasshouse Home is on');
+    console.log('  ✓ changing away from 8080 is refused while Glasshouse Home is on');
+    done();
+  });
 }
 
 function testInUse(done) {
@@ -131,6 +143,9 @@ function testLauncherSync() {
 
   fs.writeFileSync(path.join(root, ids[0], 'index.html'), '<p>an older page with no marker</p>');
   assert.deepEqual(apps.syncLauncherPort(8083, root), [], 'a page without the marker is left alone');
+  fs.unlinkSync(path.join(root, ids[0], 'index.html'));
+  ids.forEach(function (id) { fs.rmdirSync(path.join(root, id)); });
+  fs.rmdirSync(root);
   console.log('  ✓ installed launcher pages follow the port, idempotently, and absent or unmarked ones are skipped');
 }
 
@@ -146,11 +161,13 @@ function testShippedLaunchersCarryMarker() {
 testLauncherSync();
 testShippedLaunchersCarryMarker();
 testValidation(function () {
-  testInUse(function () {
-    testSaved(function () {
-      testUnchanged(function () {
-        console.log('test-dashboard-port.js passed');
-        process.exit(0);
+  testHomeOn(function () {
+    testInUse(function () {
+      testSaved(function () {
+        testUnchanged(function () {
+          console.log('test-dashboard-port.js passed');
+          process.exit(0);
+        });
       });
     });
   });

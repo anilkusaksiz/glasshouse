@@ -3,6 +3,7 @@ var fs = require('fs');
 var toInt = require('./util').toInt;
 var allocBuffer = require('./util').allocBuffer;
 var monotonicMs = require('./util').monotonicMs;
+var listenDualStack = require('./util').listenDualStack;
 var execFile = require('child_process').execFile;
 var msg = require('./say').msg;
 var timers = require('./timers');
@@ -96,6 +97,8 @@ var ntpModule = null;
 var historyModule = null;
 /** @type {typeof import('./backup')} */
 var backupModule = null;
+/** @type {typeof import('./home')} */
+var homeModule = null;
 var republishDiscoveryFn = null;
 var tvAppFn = null;
 var restartSelfFn = null;
@@ -211,9 +214,11 @@ function doRestartSelf() { return restartSelfFn(); }
 /** Whether nothing on this TV is listening on the port; cb(free). */
 function portIsFree(port, cb) {
   var probe = require('net').createServer();
-  probe.once('error', function () { cb(false); });
-  probe.once('listening', function () { probe.close(function () { cb(true); }); });
-  probe.listen(port);
+  var host = (config && config.host) || '::';
+  listenDualStack(probe, port, host, function (err) {
+    if (err) return cb(false);
+    probe.close(function () { cb(true); });
+  });
 }
 
 function doTvApp(action, cb) { return tvAppFn(action, cb); }
@@ -946,8 +951,11 @@ function doControl(action, value, cb) {
     case 'setDashboardPort':
       if (!writeSettingsFn) return cb({ ok: false, error: 'no writeSettings handler configured' });
       var newPort = /^\d{1,5}$/.test(String(value).trim()) ? parseInt(value, 10) : NaN;
-      if (!(newPort >= 1024 && newPort <= 65533) || newPort === 9998) {
-        return cb({ ok: false, error: msg('srv.port.invalid', 'The port must be a number from 1024 to 65533, other than 9998') });
+      if (!(newPort >= 1024 && newPort <= 65533) || (newPort >= 9996 && newPort <= 9998)) {
+        return cb({ ok: false, error: msg('srv.port.invalid', 'The port must be a number from 1024 to 65533, other than 9996 to 9998') });
+      }
+      if (newPort !== 8080 && homeModule && homeModule.enabled()) {
+        return cb({ ok: false, error: msg('srv.port.homeOn', 'Glasshouse Home requires port 8080. Switch Glasshouse Home off before changing the port.') });
       }
       if (config && newPort === config.port) return cb(getUpdateSummary());
       return portIsFree(newPort, function (free) {
@@ -1084,6 +1092,7 @@ function init(opts) {
   if (opts.ntp) ntpModule = opts.ntp;
   if (opts.history) historyModule = opts.history;
   if (opts.backup) backupModule = opts.backup;
+  homeModule = opts.home || null;
   if (opts.republishDiscovery) republishDiscoveryFn = opts.republishDiscovery;
   if (opts.tvApp) tvAppFn = opts.tvApp;
   if (opts.restartSelf) restartSelfFn = opts.restartSelf;
