@@ -85,12 +85,16 @@ var installFn = null;
 // Starts and stops reading the remote's Home button (lib/remotebuttons).
 /** @type {function(boolean): void} */
 var homeKeysFn = function () {};
+// Told whether the plate's picture details are on, at start and on each change.
+/** @type {function(boolean): void} */
+var pictureDetailsFn = function () {};
 /*
  * Points the remote's Home key at an app through the compositor's key filter
  * (lib/remotekeys), or gives it back to LG's filters with ''. Earlier builds
  * pointed it at their app; only cleanLegacy calls it now.
  * @type {function(string, function(Object): void): void}
  */
+var allowExperimentalFn = function () { return false; };
 var setHomeKeyFn = function (id, cb) { cb({ ok: true, none: true }); };
 /*
  * The toast the remote key filter shows for Home until Glasshouse Home is in
@@ -157,6 +161,9 @@ function defaults() {
     hidden: { app: PROMO_APPS.slice(), dev: [], ch: [] },
     channels: [],
     hintSeen: false,
+    // The plate describing the picture of what was last on: detail many
+    // won't want on a home screen, so it waits to be switched on.
+    picture: false,
     // null until chosen: the first start keeps an empty layout an earlier build left.
     hideLgHomeAtStart: null,
     snapshot: null
@@ -193,6 +200,7 @@ function normalise(raw) {
   d.enabled = raw.enabled === true;
   d.restorePending = raw.restorePending === true;
   d.hintSeen = raw.hintSeen === true;
+  d.picture = raw.picture === true;
   if (typeof raw.hideLgHomeAtStart === 'boolean') d.hideLgHomeAtStart = raw.hideLgHomeAtStart;
   d.snapshot = validSnapshot(raw.snapshot) ? raw.snapshot : null;
   return d;
@@ -213,8 +221,10 @@ function readConfig() {
   if (config && mtime === configMtime) return config;
   var raw = null;
   try { raw = JSON.parse(fs.readFileSync(configFile(), 'utf8')); } catch (e) {}
+  var before = config;
   config = normalise(raw);
   configMtime = mtime;
+  if (!before || before.picture !== config.picture) pictureDetailsFn(config.picture);
   // tvwebctl restore-glasshouse-home, run beside the server, switches it off here.
   if (wasEnabled && !config.enabled) {
     console.log('home: switched off in home.json');
@@ -271,7 +281,8 @@ function setLayout(body, cb) {
     // A moved Channels row reorders the channels themselves.
     channels: ordered(body.order && isArray(body.order.ch) ? body.order.ch : [],
                       body.channels !== undefined ? stringList(body.channels, MAX_CHANNELS) : c.channels),
-    hintSeen: body.hintSeen !== undefined ? body.hintSeen : c.hintSeen
+    hintSeen: body.hintSeen !== undefined ? body.hintSeen : c.hintSeen,
+    picture: typeof body.picture === 'boolean' ? body.picture : c.picture
   });
   if (body.reset === true) {
     var d = defaults();
@@ -284,11 +295,12 @@ function setLayout(body, cb) {
     config = c;
     return cb({ ok: false, error: msg('srv.home.saveFailed', 'could not save the layout') });
   }
+  if (c.picture !== config.picture) pictureDetailsFn(config.picture);
   cb({ ok: true, layout: layoutOf(config) });
 }
 
 function layoutOf(c) {
-  return { rows: c.rows, order: c.order, hidden: c.hidden, channels: c.channels, hintSeen: c.hintSeen };
+  return { rows: c.rows, order: c.order, hidden: c.hidden, channels: c.channels, hintSeen: c.hintSeen, picture: c.picture };
 }
 
 // ---------------------------------------------------------------- what it shows
@@ -702,6 +714,8 @@ function supported() {
   if (serverPort !== 8080) return { ok: false, webos: v,
     reason: msg('srv.home.port', 'Glasshouse Home requires the dashboard to use port 8080.') };
   if (/^9\./.test(v)) return { ok: true, webos: v };
+  // LG's Home is a Flutter app there, under the same id and folder (#612).
+  if (/^1[01]\./.test(v) && allowExperimentalFn()) return { ok: true, webos: v, experimental: true };
   return {
     ok: false, webos: v || null,
     reason: msg('srv.home.untested', 'Glasshouse Home has been tried only on webOS 9. This TV runs webOS {version}.', { version: v || '?' })
@@ -772,6 +786,7 @@ function disable(cb) {
  */
 function setHideLgHomeAtStart(body, cb) {
   if (!body || typeof body.hideLgHomeAtStart !== 'boolean') return cb({ ok: false, error: 'hideLgHomeAtStart expected' });
+  if (!startLayoutAvailable()) return cb({ ok: false, error: msg('srv.home.startLayoutWebos9', 'LG\'s Home can be hidden at start on webOS 9 only.') });
   var c = readConfig();
   var before = c.hideLgHomeAtStart;
   c.hideLgHomeAtStart = body.hideLgHomeAtStart;
@@ -1042,12 +1057,17 @@ function status(cb) {
       active: takeover.mounted() && type === 'web',
       lgHomeOpen: escaped,
       hideLgHomeAtStart: c.hideLgHomeAtStart === true,
+      hideLgHomeAtStartAvailable: startLayoutAvailable(),
       history: !!(historyModule && historyModule.enabled && historyModule.enabled()),
       wallpapers: wallpapers.status(),
       layout: layoutOf(c)
     });
   });
 }
+
+// LG's Home reads its layout from /mnt/lg/cmn_data/manifest on webOS 9 only;
+// webOS 10 and 11 have no writable layout path (TV-RESEARCH).
+function startLayoutAvailable() { return /^9\./.test(String(webosVersion || '')); }
 
 function init(opts) {
   opts = opts || {};
@@ -1068,12 +1088,14 @@ function init(opts) {
     checkpointDirs: opts.checkpointDirs,
     exec: opts.exec,
     kill: opts.kill,
-    blankAtStart: function () { return readConfig().hideLgHomeAtStart === true; }
+    blankAtStart: function () { return startLayoutAvailable() && readConfig().hideLgHomeAtStart === true; }
   });
   webosVersion = opts.webosVersion || null;
   serverPort = opts.port === undefined ? 8080 : Number(opts.port);
   installFn = opts.installApp || null;
+  allowExperimentalFn = opts.allowExperimental || function () { return false; };
   homeKeysFn = opts.homeKeys || function () {};
+  pictureDetailsFn = opts.pictureDetails || function () {};
   setHomeKeyFn = opts.setHomeKey || function (id, cb) { cb({ ok: true, none: true }); };
   homeKeyAppFn = opts.homeKeyApp || function () { return ''; };
   setStartingFn = opts.setStarting || function (text, cb) { cb({ ok: true, none: true }); };
@@ -1135,6 +1157,15 @@ function start() {
     if (c.hideLgHomeAtStart === null && takeover.blankKept()) {
       c.hideLgHomeAtStart = true;
       saveConfig();
+    }
+    /*
+     * Switched on where it is not offered: a webOS 9 TV updated to webOS 10,
+     * say, or allowExperimentalHome taken out. LG's Home is put back rather
+     * than taken on a version it was never tried on.
+     */
+    if (c.enabled && !supported().ok) {
+      console.log('home: not offered on this TV (' + supported().reason + '); switched off');
+      return disable(function (r) { if (!r.ok) console.error('home: ' + r.error); });
     }
     if (c.enabled) homeKeysFn(true);
     if (c.restorePending || (!c.enabled && takeover.mounted())) {

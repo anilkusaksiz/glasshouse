@@ -167,19 +167,34 @@ fi
 # page as Home from then on. Where sam does not take it, LG's files go back
 # under it, its own layout too, and it restarts on that. The server does the
 # same at its start, for a hook that did not run.
+# webOS 10 and 11 only with allowExperimentalHome in config.json, where LG's
+# Home is a Flutter app run as "flutter-client -i com.webos.app.home".
 homeapp=/usr/palm/applications/com.webos.app.home
 homestage=/var/lib/tvweb/home-takeover
-if [ "$webos_major" = "9" ] && [ -f "$homestage/appinfo.json" ] &&
+home_os=0
+[ "$webos_major" = "9" ] && home_os=1
+if [ "$webos_major" = "10" ] || [ "$webos_major" = "11" ]; then
+  grep -q '"allowExperimentalHome"[[:space:]]*:[[:space:]]*true' /var/lib/tvweb/config.json 2>/dev/null && home_os=1
+fi
+lg_home_pids() {
+  pidof com.webos.app.home
+  for cmd in /proc/[0-9]*/cmdline; do
+    tr '\0' ' ' < "$cmd" 2>/dev/null | grep -q '^/usr/bin/flutter-client .*-i com\.webos\.app\.home ' || continue
+    pid=${cmd#/proc/}
+    echo "${pid%/cmdline}"
+  done
+}
+if [ "$home_os" -eq 1 ] && [ -f "$homestage/appinfo.json" ] &&
    grep -q '"enabled"[[:space:]]*:[[:space:]]*true' /var/lib/tvweb/home.json 2>/dev/null; then
   mount --bind "$homestage" "$homeapp" 2>/dev/null || true
   if sam_nudge && sam_reports com.webos.app.home '"type": *"web"'; then
-    for pid in $(pidof com.webos.app.home); do kill "$pid" 2>/dev/null; done
+    for pid in $(lg_home_pids); do kill "$pid" 2>/dev/null; done
     echo "$(date): Glasshouse Home is in LG's Home's place"
   else
     umount "$homeapp" 2>/dev/null
     sam_nudge
     /usr/bin/node /var/lib/tvweb/lib/home-takeover.js --release >/dev/null 2>&1
-    for pid in $(pidof com.webos.app.home); do kill "$pid" 2>/dev/null; done
+    for pid in $(lg_home_pids); do kill "$pid" 2>/dev/null; done
     echo "$(date): sam did not take Glasshouse Home - LG's Home kept"
   fi
 fi

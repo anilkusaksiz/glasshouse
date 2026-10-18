@@ -49,6 +49,21 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #srcVia{font-size:26px;color:#a39d93}
 
+/* The plate: the picture of what was last on, right-aligned in three rows
+   that mirror the source's: the signal level with its kind, the mode, read
+   from the sofa, on its title's line, and the OLED light level with its input.
+   The rows keep their height when empty, so a plate with only one of them
+   still lines up with the source beside it. The mode's margins put its
+   smaller type on the title's baseline. */
+#plate{-webkit-flex:0 0 auto;flex:0 0 auto;max-width:640px;margin-left:56px;text-align:right;padding-bottom:2px;white-space:nowrap}
+#plate.none{display:none}
+#plSig{font-size:23px;height:32px;line-height:32px;color:#a39d93}
+#plSig span+span{margin-left:22px}
+#plMode{font-family:'Outfit',sans-serif;font-size:52px;height:70px;line-height:70px;font-weight:400;letter-spacing:-.5px;margin:15px 0 5px;
+  overflow:hidden;text-overflow:ellipsis}
+#plStrip{font-size:23px;height:36px;line-height:38px;color:#a39d93}
+#plStrip b{font-weight:400;color:#6b665e;margin-right:12px}
+
 #rows{padding-top:34px}
 .row{margin-bottom:22px}
 .row h2{padding:0 112px;font-size:25px;font-weight:400;color:#a39d93;margin-bottom:10px}
@@ -139,6 +154,11 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
       <div id="srcTitle">&mdash;</div>
       <div id="srcVia">&mdash;</div>
     </div>
+    <div id="plate" class="none">
+      <div id="plSig"></div>
+      <div id="plMode"></div>
+      <div id="plStrip"></div>
+    </div>
   </section>
 
   <main id="rows"></main>
@@ -181,7 +201,7 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
   var BEAT_MS = 5000;
 
   var data = null;       // the catalogue: apps, devices, channels, order
-  var layout = null;     // rows, order, hidden, channels, hintSeen
+  var layout = null;     // rows, order, hidden, channels, hintSeen, picture
   var guideData = {};
   var lastOn = { kind: null };
   // last: the tile focused last, which the bar's Hide or show acts on.
@@ -395,6 +415,68 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
     $('srcKind').textContent = kind || ' ';
     $('srcTitle').textContent = title || ' ';
     $('srcVia').textContent = via || ' ';
+  }
+
+  /*
+   * The plate. An input's signal is read off its receiver, so it is there
+   * while Home is; an app's is the last video it played, noted by the server
+   * while it played. A channel has none, and shows the mode it gets in SDR;
+   * an app that has played nothing shows no plate.
+   */
+  var picture = null;
+  var pictureRevision = 0;
+  var pictureSource = null;
+  var HDR_NAMES = { hdr10: 'HDR10', hlg: 'HLG', dolby_vision: t('home.plate.dolby', 'Dolby Vision') };
+
+  function refreshPicture() {
+    var revision = ++pictureRevision;
+    var kind = lastOn.kind;
+    if (!layout || layout.picture !== true) kind = null;
+    if (kind !== 'input' && kind !== 'channel' && kind !== 'app') {
+      pictureSource = null;
+      picture = null;
+      return renderPicture();
+    }
+    var which = kind === 'input' ? '&port=' + lastOn.port : kind === 'app' ? '&app=' + encodeURIComponent(lastOn.appId || '') : '';
+    var source = kind + which;
+    if (source !== pictureSource) {
+      pictureSource = source;
+      picture = null;
+      renderPicture();
+    }
+    getJson('/api/home/picture?kind=' + kind + which, function (r) {
+      if (revision !== pictureRevision) return;
+      picture = r && r.ok ? r : null;
+      renderPicture();
+    });
+  }
+
+  function hz(v) { return String(Math.round(v * 100) / 100); }
+
+  function renderPicture() {
+    var p = picture;
+    var s = p && p.signal;
+    if (!p || !(s || p.mode || lastOn.kind === 'input')) { $('plate').className = 'none'; return; }
+    var sig = [];
+    if (s) {
+      // An app's video, noted while it played: it has stopped since.
+      if (s.played) sig.push(t('home.plate.played', 'Last video'));
+      sig.push(s.hz ? t('home.plate.size', '{width} \u00d7 {height} at {hz} Hz', { width: s.width, height: s.height, hz: hz(s.hz) })
+        : t('home.plate.sizeOnly', '{width} \u00d7 {height}', { width: s.width, height: s.height }));
+      if (s.chroma) sig.push(s.bits ? t('home.plate.depth', '{chroma}, {bits}-bit', { chroma: s.chroma.replace(/^YCbCr /, ''), bits: s.bits }) : s.chroma);
+      if (HDR_NAMES[s.hdr]) sig.push(HDR_NAMES[s.hdr]);
+      if (s.vrr) sig.push(t('home.plate.vrr', 'VRR'));
+      if (s.allm) sig.push(t('home.plate.allm', 'Low latency'));
+    } else if (lastOn.kind === 'input') {
+      sig.push(t('home.plate.noSignal', 'No picture coming in'));
+    }
+    $('plSig').innerHTML = sig.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('');
+    $('plMode').textContent = p.mode ? p.mode.display : '';
+    $('plStrip').innerHTML = p.mode && typeof p.light === 'number'
+      ? '<div><b>' + esc(p.oled ? t('home.plate.oledLight', 'OLED light') : t('home.plate.backlight', 'Backlight')) +
+        '</b>' + esc(p.light) + '</div>'
+      : '';
+    $('plate').className = '';
   }
 
   // ---------------------------------------------------------------- actions
@@ -700,6 +782,7 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
       var firstLoad = !data;
       data = r;
       layout = r.layout;
+      refreshPicture();
       clearTimeout(loadRetry);
       wallAvailable = !!(r.wallpapers && r.wallpapers.available);
       wallSlots = r.wallpapers && r.wallpapers.slots;
@@ -723,6 +806,7 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
       if (!r) return;
       lastOn = r;
       renderNow();
+      refreshPicture();
       if (data && !state.arranging) render();
     });
   }
@@ -790,7 +874,7 @@ body{font-family:'Manrope',sans-serif;color:#ece7df;-webkit-font-smoothing:antia
   beat();
   load();
   setInterval(beat, BEAT_MS);
-  setInterval(function () { renderNow(); updateWall(); }, 15000);
+  setInterval(function () { renderNow(); updateWall(); if (!document.hidden) refreshPicture(); }, 15000);
   setInterval(function () { refreshNow(); refreshGuide(); }, 60000);
   setInterval(function () { if (!state.arranging) load(); }, 5 * 60000);
 })();

@@ -292,14 +292,26 @@ function reread(wantWeb, cb) {
   });
 }
 
+/*
+ * LG's Home: its own executable on webOS 9, and on webOS 10 and 11 the Flutter
+ * runner given its id, "/usr/bin/flutter-client -i com.webos.app.home" on a C2
+ * (webOS 10.3.1), as other Flutter apps run too (#612).
+ */
+function isLgHome(argv) {
+  if (argv[0] === LG_HOME_EXE) return true;
+  if (path.basename(argv[0] || '') !== 'flutter-client') return false;
+  var i = argv.indexOf('-i');
+  return i !== -1 && argv[i + 1] === LG_HOME;
+}
+
 function lgHomePids() {
   var pids = [];
   try {
     fs.readdirSync(procDir).forEach(function (d) {
       if (!/^\d+$/.test(d)) return;
       try {
-        var argv0 = fs.readFileSync(path.join(procDir, d, 'cmdline'), 'utf8').split('\0')[0];
-        if (argv0 === LG_HOME_EXE) pids.push(Number(d));
+        var argv = fs.readFileSync(path.join(procDir, d, 'cmdline'), 'utf8').split('\0');
+        if (isLgHome(argv)) pids.push(Number(d));
       } catch (e) {}
     });
   } catch (e) {}

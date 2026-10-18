@@ -17,6 +17,42 @@ On the same TV, unplugged HDMI 1 and HDMI 3 returned `connected: true`, but
 sublists. Where present, `hdmiPlugIn` takes precedence over `connected` for
 plug detection. The device list does not report per-device power state.
 
+## The picture of an input behind Home (G3, webOS 9.2.2)
+
+With a web app on screen, an HDMI input's receiver stays locked to its
+source. `/proc/lg/hdmi20/port0/status` (HDMI 4) kept `PHY Lock[1]`, `Sig:
+[3840]x[2160]@[23]Hz`, `Video Format[Y444]`, `DeepColorMode[10BIT]` and
+`cvi_vfreq[2400]`; Sig's rate rounds down, `cvi_vfreq` is in hundredths of a
+hertz. The same directory's `pkt` lists the last packet of each kind as bytes.
+Its DRM entry (Dynamic Range and Mastering InfoFrame, header `0x87`) had EOTF
+`0x02` (PQ) in the byte after the checksum; an input with nothing connected
+reads all zeros. Switching to HDMI 4, videooutput's `getStatus` reported
+`hdrType: HDR10`, `EOTFtype: 2` and 24 Hz, matching both. When the same
+source later went back to SDR, the DRM entry was all zeros again, the status
+read `Video Format[R444]` and `DeepColorMode[ 8BIT]` (padded), and
+videooutput reported `hdrType: none`. Whether `Dolby HDR Info` turns to 1 for
+a Dolby Vision source over HDMI was not seen.
+
+An app's video is gone once it stops, but while it plays videooutput's
+`getStatus` names it on the `MAIN` sink with `connectedSource: VDEC`: Netflix
+gave 3840x2160, `frameRate: 23.9760246`, `hdrType: DolbyVision`, and the
+settings service read `dimension: {input: 'default', dynamicRange:
+'dolbyHdr'}`, mode `dolbyHdrCinemaBright`. A subscription to `getStatus`
+answers at once with the current state. YouTube's home page plays a preview
+(854x480, 25 Hz) on the same sink.
+
+`settings/getSystemSettings` keeps a picture mode for each input and dynamic
+range, and reads another input's only when both are given:
+`dimension: {input: 'hdmi2'}` answers `no result from DB`, `{input: 'hdmi2',
+dynamicRange: 'sdr'}` answers. Inputs are `hdmi1` to `hdmi4`, `dtv`, `ip` and
+`default`; the four HDMI inputs had four different HDR modes. An app on screen
+(YouTube) reads as input `default`. `backlight` is kept for each input and
+picture mode, `dimension: {input, pictureMode}`, and adding `dynamicRange` to
+that answers `no result from DB`.
+
+`luna://com.webos.service.capture/executeOneShot` with `method: DISPLAY`
+writes a PNG of the screen, web apps included, at the size asked for.
+
 ## Home input titles (G3, webOS 9.2.2)
 
 HDMI launch points added by Glasshouse are bookmarks with `systemApp: false`.

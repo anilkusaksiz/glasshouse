@@ -123,6 +123,102 @@ async function visitAll(browser, jobs, problems) {
   await Promise.all([worker(), worker(), worker(), worker()]);
 }
 
+async function visitHomePicture(browser, base, problems) {
+  const page = await browser.newPage();
+  page.on('pageerror', e => problems.push('Home picture: ' + e.message));
+  const layout = { rows: ['app', 'dev', 'ch'], order: { app: [], dev: [], ch: [] },
+    hidden: { app: [], dev: [], ch: [] }, channels: [], hintSeen: true };
+  const hdmi4 = { ok: true, range: 'hdr', mode: { display: 'HDR Filmmaker' }, light: 100, oled: true,
+    signal: { width: 3840, height: 2160, hz: 24, chroma: 'YCbCr 4:4:4', bits: 10, hdr: 'hdr10' } };
+  const netflix = { ok: true, range: 'dolbyHdr', mode: { display: 'Dolby Vision Cinema Bright' }, light: 100, oled: true,
+    signal: { width: 3840, height: 2160, hz: 23.98, hdr: 'dolby_vision', played: true } };
+  const asleep = { ok: true, range: null, mode: null, light: null, oled: true, signal: null };
+  let source = { kind: 'input', port: 4, title: 'HDMI 4' };
+  let releaseCatalogue = null, latePicture = null, holdPicture = false, pictureReads = 0;
+  const reply = (route, body) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/home/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/catalogue')) {
+      const body = { ok: true, layout, apps: [], devices: [], channels: [], sources: { channels: 0 },
+        order: { app: ['lg-home'], dev: [], ch: [] } };
+      if (!releaseCatalogue) {
+        const snapshot = JSON.parse(JSON.stringify(body));
+        releaseCatalogue = () => reply(route, snapshot);
+        return;
+      }
+      return reply(route, body);
+    }
+    if (url.pathname.endsWith('/now')) return reply(route, source);
+    if (url.pathname.endsWith('/picture')) {
+      pictureReads++;
+      const body = url.searchParams.get('kind') === 'app' ? netflix : url.searchParams.get('port') === '2' ? asleep : hdmi4;
+      if (holdPicture) {
+        holdPicture = false;
+        latePicture = () => reply(route, body);
+        return;
+      }
+      return reply(route, body);
+    }
+    return reply(route, { ok: true, build: 'one' });
+  });
+  async function returned() {
+    const catalogue = page.waitForResponse(r => new URL(r.url()).pathname === '/api/home/catalogue');
+    const now = page.waitForResponse(r => new URL(r.url()).pathname === '/api/home/now');
+    await page.evaluate(() => document.dispatchEvent(new Event('webOSRelaunch')));
+    await Promise.all([catalogue, now]);
+    await page.waitForTimeout(100);
+  }
+  async function delayPicture() {
+    latePicture = null;
+    holdPicture = true;
+    await page.clock.fastForward(15000);
+    const until = Date.now() + 4000;
+    while (!latePicture && Date.now() < until) await page.waitForTimeout(20);
+    if (!latePicture) throw new Error('Home picture: no refresh to delay');
+  }
+  try {
+    await page.clock.install();
+    await page.goto(base + '/assets/home.html');
+    await page.waitForFunction(() => document.getElementById('srcTitle').textContent === 'HDMI 4');
+    if (pictureReads) problems.push('Home picture: fetched a plate before the layout was known');
+    await releaseCatalogue();
+    await page.waitForSelector('.tile');
+    await page.waitForTimeout(100);
+    if (await page.locator('#plate').isVisible()) problems.push('Home picture: a layout without picture details showed a plate');
+    layout.picture = true;
+    await returned();
+    await page.waitForFunction(() => document.getElementById('plMode').textContent === 'HDR Filmmaker');
+    if (await page.locator('#plStrip > div').count() !== 1) problems.push('Home picture: the strip held more than the OLED light');
+    source = { kind: 'input', port: 2, title: 'HDMI 2' };
+    await returned();
+    await page.waitForFunction(() => document.getElementById('plSig').textContent === 'No picture coming in');
+    const level = await page.evaluate(() => {
+      const top = id => document.getElementById(id).getBoundingClientRect().top;
+      return { shown: document.getElementById('plMode').textContent + document.getElementById('plStrip').textContent,
+        off: Math.abs(top('plSig') - top('srcKind')) };
+    });
+    if (level.shown) problems.push('Home picture: no signal still showed a mode or OLED light');
+    if (level.off > 1) problems.push('Home picture: no signal left its line off the source\'s first line');
+    source = { kind: 'input', port: 4, title: 'HDMI 4' };
+    await returned();
+    await page.waitForFunction(() => document.getElementById('plMode').textContent === 'HDR Filmmaker');
+    await delayPicture();
+    source = { kind: 'app', appId: 'netflix', title: 'Netflix' };
+    await returned();
+    await page.waitForFunction(() => document.getElementById('plMode').textContent === 'Dolby Vision Cinema Bright');
+    await latePicture();
+    await page.waitForTimeout(100);
+    if (await page.locator('#plMode').textContent() !== 'Dolby Vision Cinema Bright') problems.push('Home picture: a late HDMI reply replaced the app picture');
+    await delayPicture();
+    layout.picture = false;
+    await returned();
+    if (await page.locator('#plate').isVisible()) problems.push('Home picture: returning with details off kept the plate');
+    await latePicture();
+    await page.waitForTimeout(100);
+    if (await page.locator('#plate').isVisible()) problems.push('Home picture: a late reply restored a disabled plate');
+  } finally { await page.close(); }
+}
+
 async function visitHomeArrangement(browser, base, problems) {
   const page = await browser.newPage();
   page.on('pageerror', e => problems.push('Home arranging: ' + e.message));
@@ -413,6 +509,7 @@ async function visitHomeReadiness(browser, base, problems) {
   await visitAll(browser, web.map(t => ({ url: base + '/?tab=' + t, label: 'web ' + t }))
     .concat(tv.map(t => ({ url: base + '/assets/dashboard.html?tab=' + t, label: 'TV ' + t }))), problems);
   await visitHomeArrangement(browser, base, problems);
+  await visitHomePicture(browser, base, problems);
   await visitHomeEditor(browser, base, problems);
   await visitHomeUploads(browser, base, problems);
   await visitHomeReadiness(browser, base, problems);
@@ -420,6 +517,6 @@ async function visitHomeReadiness(browser, base, problems) {
   await browser.close();
   for (const p of problems) console.log(p);
   console.log((web.length + tv.length) + ' tabs opened (' + web.length + ' web, ' + tv.length + ' TV app), ' +
-              'Home arranging, update, editing, uploads, readiness and availability checked, ' + problems.length + ' problem' + (problems.length === 1 ? '' : 's'));
+              'Home arranging, picture, update, editing, uploads, readiness and availability checked, ' + problems.length + ' problem' + (problems.length === 1 ? '' : 's'));
   process.exit(problems.length ? 1 : 0);
 })().catch(e => { console.error(e.message); process.exit(1); });

@@ -287,6 +287,50 @@ step('switching on reads the new files into sam before stopping LG\'s Home, and 
   });
 });
 
+step('switched on where it is not offered, as after a firmware update to webOS 10, it is switched off at start', function (done) {
+  start({ enabled: true }, { webosVersion: '10.3.1' });
+  home.start();
+  wait(50, function () {
+    assert.strictEqual(home.enabled(), false);
+    assert.ok(tv.events.indexOf('mount') === -1, 'LG\'s Home is not touched');
+    assert.ok(!taken());
+    done();
+  });
+});
+
+step('webOS 10 and 11 only with allowExperimentalHome, with LG\'s Flutter Home stopped and no start-up layout', function (done) {
+  start(null, { webosVersion: '10.3.1' });
+  home.status(function (st0) {
+  assert.strictEqual(st0.supported.ok, false, 'untried there, so not offered by default');
+  start({ hideLgHomeAtStart: true }, { webosVersion: '10.3.1', allowExperimental: function () { return true; } });
+  // LG's Home as a C2 (webOS 10.3.1) runs it: the Flutter runner given its id.
+  lgRunning(false);
+  var flutter = path.join(procDir, '3301');
+  fs.mkdirSync(flutter);
+  fs.writeFileSync(path.join(flutter, 'cmdline'), '/usr/bin/flutter-client\0-i\0' + LG_HOME + '\0');
+  var other = path.join(procDir, '3302');
+  fs.mkdirSync(other);
+  fs.writeFileSync(path.join(other, 'cmdline'), '/usr/bin/flutter-client\0-i\0com.webos.app.screensaver\0');
+  home.enable(function (r) {
+    assert.ok(r.ok, r.error);
+    assert.deepEqual(tv.events, ['mount', 'reread', 'stop LG 3301'], 'LG\'s Home stopped, and no other Flutter app');
+    assert.strictEqual(fs.readFileSync(path.join(layoutDir, 'home_layoutShelfView.xml'), 'utf8'), CUSTOM_LAYOUT,
+                       'no empty layout: webOS 10 does not read one');
+    home.status(function (st) {
+      assert.strictEqual(st.supported.ok, true);
+      assert.strictEqual(st.hideLgHomeAtStartAvailable, false);
+      home.setHideLgHomeAtStart({ hideLgHomeAtStart: true }, function (r2) {
+        assert.strictEqual(r2.ok, false, 'not offered where it does nothing');
+        home.disable(function (r3) {
+          assert.ok(r3.ok, r3.error);
+          done();
+        });
+      });
+    });
+  });
+  });
+});
+
 step('chosen, LG\'s Home starts on an empty layout while Glasshouse Home has its place', function (done) {
   start({ hideLgHomeAtStart: true });
   home.enable(function (r) {
@@ -581,6 +625,25 @@ step('a failed layout restore keeps the backup and can be retried', function (do
         assert.ok(retried.ok, retried.error);
         assert.strictEqual(fs.readFileSync(blocked, 'utf8'), CUSTOM_LAYOUT);
         assert.ok(!fs.existsSync(path.join(layoutDir, 'home_layout.xml')));
+        done();
+      });
+    });
+  });
+});
+
+step('the picture details stay off until switched on, and the server is told of each change', function (done) {
+  var told = [];
+  start(null, { pictureDetails: function (on) { told.push(on); } });
+  assert.strictEqual(home.layout().picture, false);
+  assert.deepEqual(told, [false]);
+  home.setLayout({ picture: true }, function (r) {
+    assert.strictEqual(r.layout.picture, true);
+    home.setLayout({ hintSeen: true }, function (r2) {
+      assert.strictEqual(r2.layout.picture, true);
+      assert.strictEqual(home.normalise(JSON.parse(fs.readFileSync(path.join(dir, 'home.json'), 'utf8'))).picture, true);
+      assert.deepEqual(told, [false, true], 'a change elsewhere in the layout is not a change of details');
+      home.setLayout({ picture: false }, function () {
+        assert.deepEqual(told, [false, true, false]);
         done();
       });
     });
