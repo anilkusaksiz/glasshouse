@@ -1,7 +1,7 @@
 # Home
 
 > [!NOTE]
-> **Experimental (webOS 9 & 10):** Glasshouse Home replaces LG's built-in launcher when pressing **Home** or **Back** on the remote, or when the TV turns on. It is available on webOS 9 and 10 (and on webOS 11 when `"allowExperimentalHome": true` is set in `config.json`), and requires the dashboard server on port `8080`.
+> **Experimental (webOS 9 & 10):** Glasshouse Home replaces LG's built-in launcher when pressing **Home** or **Back** on the remote, or when the TV turns on. It is available on webOS 9 and 10 (and on webOS 11 when `"allowExperimentalHome": true` is set in `config.json`), and works on whichever port the dashboard is on.
 
 ![Glasshouse Home on an OLED55G36LA (webOS 9.2): clock and the Apps, Inputs and Channels rows over an uploaded afternoon wallpaper](../screenshots/home.jpg)
 
